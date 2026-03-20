@@ -747,9 +747,32 @@ uvc_error_t uvc_get_still_ctrl_format_size(
 static int _uvc_stream_params_negotiated(
         uvc_stream_ctrl_t *required,
         uvc_stream_ctrl_t *actual) {
+    /*
     return required->bFormatIndex == actual->bFormatIndex &&
            required->bFrameIndex == actual->bFrameIndex &&
            required->dwMaxPayloadTransferSize >= actual->dwMaxPayloadTransferSize;
+    */
+
+    if (required->bFormatIndex != actual->bFormatIndex ||
+        required->bFrameIndex != actual->bFrameIndex) {
+        return 0;
+    }
+
+    if (required->bFormatIndex == actual->bFormatIndex ||
+        required->bFrameIndex == actual->bFrameIndex) {
+        return 1;
+    }
+
+    if (actual->dwMaxPayloadTransferSize == 0) {
+        return 1;
+    }
+
+    if (required->dwMaxPayloadTransferSize < actual->dwMaxPayloadTransferSize) {
+        LOGW("Warning: Device requested higher bandwidth (%u) than expected (%u). Proceeding anyway...",
+             actual->dwMaxPayloadTransferSize, required->dwMaxPayloadTransferSize);
+    }
+
+    return 1;
 }
 
 /** @internal
