@@ -64,7 +64,7 @@ public class Size implements Parcelable, Cloneable {
 
     @Override
     public String toString() {
-        return String.format(Locale.US, "Size(%dx%d@%d,type:%d)", width, height, fps, type);
+        return String.format(Locale.US, "Size(%d x %d - fps: @%d, type: %d)", width, height, fps, type);
     }
 
     @Override

@@ -7,29 +7,6 @@ import android.graphics.SurfaceTexture;
 import android.hardware.usb.UsbDevice;
 import android.hardware.usb.UsbManager;
 import android.os.Bundle;
-
-import androidx.annotation.NonNull;
-import androidx.annotation.Nullable;
-import androidx.appcompat.app.AppCompatActivity;
-
-import com.google.gson.Gson;
-import com.herohan.uvcapp.ImageCapture;
-import com.herohan.uvcapp.VideoCapture;
-import com.hjq.permissions.XXPermissions;
-import com.serenegiant.opengl.renderer.MirrorMode;
-import com.herohan.uvcapp.CameraHelper;
-import com.herohan.uvcapp.ICameraHelper;
-import com.serenegiant.usb.IButtonCallback;
-import com.serenegiant.usb.Size;
-import com.serenegiant.usb.USBMonitor;
-import com.serenegiant.utils.UriHelper;
-import com.herohan.uvcapp.R;
-import com.herohan.uvcapp.databinding.ActivityMainBinding;
-import com.herohan.uvcapp.fragment.CameraControlsDialogFragment;
-import com.herohan.uvcapp.fragment.DeviceListDialogFragment;
-import com.herohan.uvcapp.fragment.VideoFormatDialogFragment;
-import com.herohan.uvcapp.utils.SaveHelper;
-
 import android.os.SystemClock;
 import android.text.TextUtils;
 import android.util.Log;
@@ -39,8 +16,31 @@ import android.view.TextureView;
 import android.view.View;
 import android.widget.Toast;
 
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.appcompat.app.AppCompatActivity;
+
+import com.google.gson.Gson;
+import com.herohan.uvcapp.CameraHelper;
+import com.herohan.uvcapp.ICameraHelper;
+import com.herohan.uvcapp.ImageCapture;
+import com.herohan.uvcapp.R;
+import com.herohan.uvcapp.VideoCapture;
+import com.herohan.uvcapp.databinding.ActivityMainBinding;
+import com.herohan.uvcapp.fragment.CameraControlsDialogFragment;
+import com.herohan.uvcapp.fragment.DeviceListDialogFragment;
+import com.herohan.uvcapp.fragment.VideoFormatDialogFragment;
+import com.herohan.uvcapp.utils.SaveHelper;
+import com.hjq.permissions.XXPermissions;
+import com.serenegiant.opengl.renderer.MirrorMode;
+import com.serenegiant.usb.IButtonCallback;
+import com.serenegiant.usb.Size;
+import com.serenegiant.usb.USBMonitor;
+import com.serenegiant.utils.UriHelper;
+
 import java.io.File;
 import java.text.DecimalFormat;
+import java.util.List;
 import java.util.Timer;
 import java.util.TimerTask;
 
@@ -242,15 +242,35 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
+        Size currentSize = mCameraHelper.getPreviewSize();
+
+        List<com.serenegiant.usb.Format> formats = mCameraHelper.getSupportedFormatList();
+
+        // If you can't select a size (because the camera hasn't successfully opened), please select a default size from the list.
+        if (currentSize == null && formats != null && !formats.isEmpty()) {
+            com.serenegiant.usb.Format.Descriptor desc = formats.get(0).frameDescriptors.get(0);
+            currentSize = new Size(desc.type, desc.width, desc.height, desc.intervals.get(0).fps, null);
+        }
+
+        if (currentSize == null) {
+            Toast.makeText(this, "Camera data could not be obtained.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
         mFormatDialog = new VideoFormatDialogFragment(mCameraHelper.getSupportedFormatList(), mCameraHelper.getPreviewSize());
+
         mFormatDialog.setOnVideoFormatSelectListener(size -> {
-            if (mIsCameraConnected && !mCameraHelper.isRecording()) {
-                mCameraHelper.stopPreview();
-                mCameraHelper.setPreviewSize(size);
-                mCameraHelper.startPreview();
-                resizePreviewView(size);
-                // save selected preview size
-                setSavedPreviewSize(size);
+            try {
+                if (mIsCameraConnected && !mCameraHelper.isRecording()) {
+                    mCameraHelper.stopPreview();
+                    mCameraHelper.setPreviewSize(size);
+                    mCameraHelper.startPreview();
+                    resizePreviewView(size);
+                    // save selected preview size
+                    setSavedPreviewSize(size);
+                }
+            } catch (IllegalArgumentException e) {
+                Log.d(TAG, "showVideoFormatDialog: " + e.getMessage());
             }
         });
 

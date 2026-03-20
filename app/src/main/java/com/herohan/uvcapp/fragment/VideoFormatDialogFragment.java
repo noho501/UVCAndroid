@@ -11,11 +11,11 @@ import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
 import androidx.fragment.app.DialogFragment;
 
+import com.herohan.uvcapp.R;
+import com.herohan.uvcapp.databinding.FragmentVideoFormatBinding;
 import com.serenegiant.usb.Format;
 import com.serenegiant.usb.Size;
 import com.serenegiant.usb.UVCCamera;
-import com.herohan.uvcapp.R;
-import com.herohan.uvcapp.databinding.FragmentVideoFormatBinding;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -40,8 +40,12 @@ public class VideoFormatDialogFragment extends DialogFragment {
     private FragmentVideoFormatBinding mBinding;
 
     public VideoFormatDialogFragment(List<Format> formatList, Size size) {
-        mFormatList = formatList;
-        mSize = size.clone();
+        if (formatList != null) {
+            mFormatList = formatList;
+        }
+        if (size != null) {
+            mSize = size.clone();
+        }
     }
 
     @NonNull
