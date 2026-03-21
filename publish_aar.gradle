@@ -3,6 +3,9 @@ mavenPublishing {
     coordinates(publishedGroupId, artifact, libraryVersion)
     publishToMavenCentral()
     signAllPublications()
+    signing {
+        required { false }
+    }
 
     pom {
         name = artifact
