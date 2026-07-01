@@ -638,7 +638,6 @@ int copyToSurface(uvc_frame_t *frame, ANativeWindow **window) {
     if (LIKELY(*window)) {
         ANativeWindow_Buffer buffer;
         if (LIKELY(ANativeWindow_lock(*window, &buffer, NULL) == 0)) {
-
             if (frame->width >= buffer.stride) {
                 memcpy(buffer.bits, frame->data,
                        buffer.width * buffer.height * PREVIEW_PIXEL_BYTES);

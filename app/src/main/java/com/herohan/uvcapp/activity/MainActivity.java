@@ -3,16 +3,17 @@ package com.herohan.uvcapp.activity;
 import android.Manifest;
 import android.content.Intent;
 import android.content.res.ColorStateList;
-import android.graphics.SurfaceTexture;
 import android.hardware.usb.UsbDevice;
 import android.hardware.usb.UsbManager;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.SystemClock;
 import android.text.TextUtils;
 import android.util.Log;
+import android.graphics.PixelFormat;
 import android.view.Menu;
 import android.view.MenuItem;
-import android.view.TextureView;
+import android.view.SurfaceHolder;
 import android.view.View;
 import android.widget.Toast;
 
@@ -36,10 +37,14 @@ import com.serenegiant.opengl.renderer.MirrorMode;
 import com.serenegiant.usb.IButtonCallback;
 import com.serenegiant.usb.Size;
 import com.serenegiant.usb.USBMonitor;
+import com.serenegiant.usb.UVCParam;
+import com.serenegiant.usb.UVCCamera;
 import com.serenegiant.utils.UriHelper;
 
 import java.io.File;
 import java.text.DecimalFormat;
+import java.util.ArrayList;
+import java.util.Locale;
 import java.util.List;
 import java.util.Timer;
 import java.util.TimerTask;
@@ -48,6 +53,11 @@ public class MainActivity extends AppCompatActivity {
 
     private static final String TAG = MainActivity.class.getSimpleName();
     private static final boolean DEBUG = true;
+    private static final int MTK_PREFERRED_WIDTH = 640;
+    private static final int MTK_PREFERRED_HEIGHT = 480;
+    private static final int MTK_FALLBACK_WIDTH = 640;
+    private static final int MTK_FALLBACK_HEIGHT = 360;
+    private static final int MTK_SAFE_FPS = 15;
 
     private ActivityMainBinding mBinding;
 
@@ -80,6 +90,7 @@ public class MainActivity extends AppCompatActivity {
 
     private boolean mIsRecording = false;
     private boolean mIsCameraConnected = false;
+    private boolean mPreviewHolderCallbackAdded = false;
 
     private CameraControlsDialogFragment mControlsDialog;
     private DeviceListDialogFragment mDeviceListDialog;
@@ -349,31 +360,40 @@ public class MainActivity extends AppCompatActivity {
 
     private void initPreviewView() {
         mBinding.viewMainPreview.setAspectRatio(mPreviewWidth, mPreviewHeight);
-        mBinding.viewMainPreview.setSurfaceTextureListener(new TextureView.SurfaceTextureListener() {
+        configurePreviewHolder(mPreviewWidth, mPreviewHeight);
+        if (mPreviewHolderCallbackAdded) {
+            return;
+        }
+        mPreviewHolderCallbackAdded = true;
+        mBinding.viewMainPreview.getHolder().addCallback(new SurfaceHolder.Callback() {
             @Override
-            public void onSurfaceTextureAvailable(@NonNull SurfaceTexture surface, int width, int height) {
+            public void surfaceCreated(@NonNull SurfaceHolder holder) {
                 if (mCameraHelper != null) {
-                    mCameraHelper.addSurface(surface, false);
+                    mCameraHelper.addSurface(holder.getSurface(), false);
                 }
             }
 
             @Override
-            public void onSurfaceTextureSizeChanged(@NonNull SurfaceTexture surface, int width, int height) {
+            public void surfaceChanged(@NonNull SurfaceHolder holder, int format, int width, int height) {
             }
 
             @Override
-            public boolean onSurfaceTextureDestroyed(@NonNull SurfaceTexture surface) {
+            public void surfaceDestroyed(@NonNull SurfaceHolder holder) {
                 if (mCameraHelper != null) {
-                    mCameraHelper.removeSurface(surface);
+                    mCameraHelper.removeSurface(holder.getSurface());
                 }
-                return false;
-            }
-
-            @Override
-            public void onSurfaceTextureUpdated(@NonNull SurfaceTexture surface) {
-
             }
         });
+    }
+
+    private void configurePreviewHolder(int width, int height) {
+        SurfaceHolder holder = mBinding.viewMainPreview.getHolder();
+        holder.setFormat(PixelFormat.RGBA_8888);
+        if (width > 0 && height > 0) {
+            holder.setFixedSize(width, height);
+        } else {
+            holder.setSizeFromLayout();
+        }
     }
 
 
@@ -421,7 +441,7 @@ public class MainActivity extends AppCompatActivity {
         public void onDeviceOpen(UsbDevice device, boolean isFirstOpen) {
             if (DEBUG) Log.v(TAG, "onDeviceOpen:device=" + device.getDeviceName());
 
-            mCameraHelper.openCamera(getSavedPreviewSize());
+            mCameraHelper.openCamera(getCameraOpenParam());
 
             mCameraHelper.setButtonCallback(new IButtonCallback() {
                 @Override
@@ -435,6 +455,7 @@ public class MainActivity extends AppCompatActivity {
         @Override
         public void onCameraOpen(UsbDevice device) {
             if (DEBUG) Log.v(TAG, "onCameraOpen:device=" + device.getDeviceName());
+            applyMediaTekPreviewPreference();
             mCameraHelper.startPreview();
 
             // After connecting to the camera, you can get preview size of the camera
@@ -443,9 +464,7 @@ public class MainActivity extends AppCompatActivity {
                 resizePreviewView(size);
             }
 
-            if (mBinding.viewMainPreview.getSurfaceTexture() != null) {
-                mCameraHelper.addSurface(mBinding.viewMainPreview.getSurfaceTexture(), false);
-            }
+            mCameraHelper.addSurface(mBinding.viewMainPreview.getHolder().getSurface(), false);
 
             mIsCameraConnected = true;
             updateUIControls();
@@ -459,8 +478,8 @@ public class MainActivity extends AppCompatActivity {
                 toggleVideoRecord(false);
             }
 
-            if (mCameraHelper != null && mBinding.viewMainPreview.getSurfaceTexture() != null) {
-                mCameraHelper.removeSurface(mBinding.viewMainPreview.getSurfaceTexture());
+            if (mCameraHelper != null) {
+                mCameraHelper.removeSurface(mBinding.viewMainPreview.getHolder().getSurface());
             }
 
             mIsCameraConnected = false;
@@ -497,7 +516,7 @@ public class MainActivity extends AppCompatActivity {
         // Update the preview size
         mPreviewWidth = size.width;
         mPreviewHeight = size.height;
-        // Set the aspect ratio of TextureView to match the aspect ratio of the camera
+        configurePreviewHolder(mPreviewWidth, mPreviewHeight);
         mBinding.viewMainPreview.setAspectRatio(mPreviewWidth, mPreviewHeight);
     }
 
@@ -539,6 +558,240 @@ public class MainActivity extends AppCompatActivity {
         }
         Gson gson = new Gson();
         return gson.fromJson(sizeStr, Size.class);
+    }
+
+    private UVCParam getCameraOpenParam() {
+        boolean isMediaTek = isMediaTekDevice();
+        Size previewSize = getSavedPreviewSize();
+        if (isMediaTek) {
+            previewSize = getMediaTekOpenCandidate(previewSize);
+        }
+        int quirks = getPreviewQuirks(previewSize);
+        if (DEBUG) Log.i(TAG, "getCameraOpenParam: quirks=0x" + Integer.toHexString(quirks)
+                + ", previewSize=" + previewSize
+                + ", hardware=" + Build.HARDWARE
+                + ", board=" + Build.BOARD);
+        return new UVCParam(previewSize, quirks);
+    }
+
+    private int getPreviewQuirks(Size previewSize) {
+        int quirks = 0;
+        if (previewSize != null && previewSize.type == UVCCamera.UVC_VS_FRAME_UNCOMPRESSED) {
+            quirks |= UVCCamera.UVC_QUIRK_FIX_BANDWIDTH;
+        }
+        return quirks;
+    }
+
+    private Size getMediaTekOpenCandidate(Size previewSize) {
+        if (previewSize == null) {
+            return new Size(
+                    UVCCamera.UVC_VS_FRAME_UNCOMPRESSED,
+                    MTK_PREFERRED_WIDTH,
+                    MTK_PREFERRED_HEIGHT,
+                    MTK_SAFE_FPS,
+                    new ArrayList<>());
+        }
+        Size safeSize = previewSize.clone();
+        if (safeSize.width == UVCCamera.DEFAULT_PREVIEW_WIDTH
+                && safeSize.height == UVCCamera.DEFAULT_PREVIEW_HEIGHT) {
+            safeSize.width = MTK_PREFERRED_WIDTH;
+            safeSize.height = MTK_PREFERRED_HEIGHT;
+        }
+        safeSize.type = UVCCamera.UVC_VS_FRAME_UNCOMPRESSED;
+        if (safeSize.width == MTK_FALLBACK_WIDTH && safeSize.height == MTK_FALLBACK_HEIGHT) {
+            safeSize.width = MTK_PREFERRED_WIDTH;
+            safeSize.height = MTK_PREFERRED_HEIGHT;
+        }
+        if (safeSize.fps > MTK_SAFE_FPS) {
+            safeSize.fps = MTK_SAFE_FPS;
+        }
+        if (safeSize.fps <= 0) {
+            safeSize.fps = MTK_SAFE_FPS;
+        }
+        if (safeSize.fpsList == null) {
+            safeSize.fpsList = new ArrayList<>();
+        }
+        if (!safeSize.fpsList.contains(safeSize.fps)) {
+            safeSize.fpsList.add(safeSize.fps);
+        }
+        return safeSize;
+    }
+
+    private void applyMediaTekPreviewPreference() {
+        if (!isMediaTekDevice() || mCameraHelper == null) {
+            return;
+        }
+        Size currentSize = mCameraHelper.getPreviewSize();
+        List<Size> supportedSizes = mCameraHelper.getSupportedSizeList();
+        if (currentSize == null || supportedSizes == null || supportedSizes.isEmpty()) {
+            return;
+        }
+        Size preferredSize = resolveMediaTekPreferredSize(getSavedPreviewSize(), currentSize, supportedSizes);
+        if (preferredSize == null || isSamePreviewSize(currentSize, preferredSize)) {
+            return;
+        }
+        if (DEBUG) {
+            Log.i(TAG, "applyMediaTekPreviewPreference: switch " + currentSize + " -> " + preferredSize);
+        }
+        mCameraHelper.setPreviewSize(preferredSize);
+        setSavedPreviewSize(preferredSize);
+    }
+
+    private Size resolveMediaTekPreferredSize(Size savedSize, Size currentSize, List<Size> supportedSizes) {
+        Size preferred = findExactSize(supportedSizes, MTK_PREFERRED_WIDTH, MTK_PREFERRED_HEIGHT, MTK_SAFE_FPS);
+        if (preferred != null) {
+            return preferred;
+        }
+
+        preferred = findMatchingUncompressedSize(supportedSizes, savedSize);
+        if (preferred != null && !isLegacyMediaTekFallbackSize(preferred)) {
+            return preferred;
+        }
+
+        preferred = findMatchingUncompressedSize(supportedSizes, currentSize);
+        if (preferred != null && !isLegacyMediaTekFallbackSize(preferred)) {
+            return preferred;
+        }
+
+        preferred = findExactSize(supportedSizes, MTK_FALLBACK_WIDTH, MTK_FALLBACK_HEIGHT, MTK_SAFE_FPS);
+        if (preferred != null) {
+            return preferred;
+        }
+
+        preferred = findBestUncompressedUnderSafeSize(supportedSizes,
+                MTK_PREFERRED_WIDTH, MTK_PREFERRED_HEIGHT, MTK_SAFE_FPS);
+        if (preferred != null) {
+            return preferred;
+        }
+
+        preferred = findBestUncompressedSize(supportedSizes, MTK_SAFE_FPS);
+        if (preferred != null) {
+            return preferred;
+        }
+
+        return currentSize;
+    }
+
+    private Size findMatchingUncompressedSize(List<Size> supportedSizes, Size sourceSize) {
+        if (sourceSize == null) {
+            return null;
+        }
+        return findExactSize(supportedSizes, sourceSize.width, sourceSize.height, sourceSize.fps);
+    }
+
+    private boolean isLegacyMediaTekFallbackSize(Size size) {
+        return size != null
+                && size.width == MTK_FALLBACK_WIDTH
+                && size.height == MTK_FALLBACK_HEIGHT;
+    }
+
+    private Size findExactSize(List<Size> supportedSizes, int width, int height, int targetFps) {
+        for (Size supportedSize : supportedSizes) {
+            if (supportedSize.type == UVCCamera.UVC_VS_FRAME_UNCOMPRESSED
+                    && supportedSize.width == width
+                    && supportedSize.height == height) {
+                return copySizeWithChosenFps(supportedSize, targetFps);
+            }
+        }
+        return null;
+    }
+
+    private Size findBestUncompressedUnderSafeSize(List<Size> supportedSizes,
+                                                   int safeWidth,
+                                                   int safeHeight,
+                                                   int targetFps) {
+        Size best = null;
+        int bestArea = -1;
+        for (Size supportedSize : supportedSizes) {
+            if (supportedSize.type != UVCCamera.UVC_VS_FRAME_UNCOMPRESSED
+                    || supportedSize.width > safeWidth
+                    || supportedSize.height > safeHeight) {
+                continue;
+            }
+            int area = supportedSize.width * supportedSize.height;
+            if (area > bestArea) {
+                best = supportedSize;
+                bestArea = area;
+            }
+        }
+        return best != null ? copySizeWithChosenFps(best, targetFps) : null;
+    }
+
+    private Size findBestUncompressedSize(List<Size> supportedSizes, int targetFps) {
+        Size best = null;
+        int bestScore = Integer.MAX_VALUE;
+        for (Size supportedSize : supportedSizes) {
+            if (supportedSize.type != UVCCamera.UVC_VS_FRAME_UNCOMPRESSED) {
+                continue;
+            }
+            int score = Math.abs((supportedSize.width * supportedSize.height)
+                    - (MTK_PREFERRED_WIDTH * MTK_PREFERRED_HEIGHT));
+            if (score < bestScore) {
+                best = supportedSize;
+                bestScore = score;
+            }
+        }
+        return best != null ? copySizeWithChosenFps(best, targetFps) : null;
+    }
+
+    private Size copySizeWithChosenFps(Size supportedSize, int targetFps) {
+        Size selected = supportedSize.clone();
+        selected.fps = chooseBestFps(supportedSize, targetFps);
+        return selected;
+    }
+
+    private int chooseBestFps(Size supportedSize, int targetFps) {
+        int bestAtOrBelowTarget = -1;
+        int bestAboveTarget = Integer.MAX_VALUE;
+        List<Integer> fpsList = supportedSize.fpsList;
+        if (fpsList != null && !fpsList.isEmpty()) {
+            for (Integer fps : fpsList) {
+                if (fps == null || fps <= 0) {
+                    continue;
+                }
+                if (fps <= targetFps && fps > bestAtOrBelowTarget) {
+                    bestAtOrBelowTarget = fps;
+                } else if (fps > targetFps && fps < bestAboveTarget) {
+                    bestAboveTarget = fps;
+                }
+            }
+        }
+        if (bestAtOrBelowTarget > 0) {
+            return bestAtOrBelowTarget;
+        }
+        if (bestAboveTarget != Integer.MAX_VALUE) {
+            return bestAboveTarget;
+        }
+        return supportedSize.fps > 0 ? supportedSize.fps : targetFps;
+    }
+
+    private boolean isSamePreviewSize(Size first, Size second) {
+        return first != null
+                && second != null
+                && first.type == second.type
+                && first.width == second.width
+                && first.height == second.height
+                && first.fps == second.fps;
+    }
+
+    private boolean isMediaTekDevice() {
+        return isMediaTekBuildValue(Build.HARDWARE)
+                || isMediaTekBuildValue(Build.BOARD)
+                || isMediaTekBuildValue(Build.MANUFACTURER)
+                || isMediaTekBuildValue(Build.BRAND)
+                || isMediaTekBuildValue(Build.DEVICE)
+                || isMediaTekBuildValue(Build.MODEL);
+    }
+
+    private boolean isMediaTekBuildValue(String value) {
+        if (value == null) {
+            return false;
+        }
+        String normalized = value.toLowerCase(Locale.US);
+        return normalized.contains("mediatek")
+                || normalized.contains("mtk")
+                || normalized.matches(".*(^|[^a-z0-9])mt[0-9].*")
+                || normalized.matches("^mt[0-9].*");
     }
 
     private void setSavedPreviewSize(Size size) {
