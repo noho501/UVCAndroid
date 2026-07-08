@@ -511,7 +511,7 @@ public class UVCCamera {
         if (mSupportedSizeList != null) {
             for (Size size : mSupportedSizeList) {
                 if (size.width == width && size.height == height && size.type == frameType) {
-                    return new ArrayList<>(size.fpsList);
+                    return size.fpsList != null ? new ArrayList<>(size.fpsList) : Collections.emptyList();
                 }
             }
         }
