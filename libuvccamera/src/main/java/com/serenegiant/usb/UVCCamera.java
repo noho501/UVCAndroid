@@ -468,6 +468,15 @@ public class UVCCamera {
         }
 
         if (mNativePtr != 0) {
+            // Resolve requested FPS to the closest supported value before validation
+            final List<Integer> supportedFps = getSupportedFpsForSize(size.width, size.height, size.type);
+            final int resolvedFps = resolveFrameRate(size.fps, supportedFps);
+            if (resolvedFps != size.fps) {
+                if (DEBUG) Log.d(TAG, "Requested FPS: " + size.fps + ", Resolved FPS: " + resolvedFps);
+                size = size.clone();
+                size.fps = resolvedFps;
+            }
+
             if (!checkSizeValid(size.width, size.height, size.type, size.fps)) {
                 throw new IllegalArgumentException("invalid preview size");
             }
@@ -486,6 +495,52 @@ public class UVCCamera {
 
             mCurrentSize = size;
         }
+    }
+
+    /**
+     * Returns the list of supported FPS values for the given resolution and frame type,
+     * looked up from the parsed UVC descriptors. Returns an empty list if no information
+     * is available.
+     *
+     * @param width     preview width
+     * @param height    preview height
+     * @param frameType frame type (e.g. UVC_VS_FRAME_MJPEG)
+     * @return list of supported FPS values, or empty list if unavailable
+     */
+    private List<Integer> getSupportedFpsForSize(final int width, final int height, final int frameType) {
+        if (mSupportedSizeList != null) {
+            for (Size size : mSupportedSizeList) {
+                if (size.width == width && size.height == height && size.type == frameType) {
+                    return size.fpsList != null ? new ArrayList<>(size.fpsList) : Collections.emptyList();
+                }
+            }
+        }
+        return Collections.emptyList();
+    }
+
+    /**
+     * Returns the supported FPS value closest to {@code requested}.
+     * If the supported list is null or empty the requested value is returned unchanged,
+     * preserving existing behaviour.
+     *
+     * @param requested requested frames-per-second
+     * @param supported list of FPS values reported by the UVC device
+     * @return the supported FPS with the smallest absolute difference from {@code requested}
+     */
+    private int resolveFrameRate(final int requested, final List<Integer> supported) {
+        if (supported == null || supported.isEmpty()) {
+            return requested;
+        }
+        int best = supported.get(0);
+        int bestDiff = Math.abs(best - requested);
+        for (int i = 1; i < supported.size(); i++) {
+            final int diff = Math.abs(supported.get(i) - requested);
+            if (diff < bestDiff) {
+                bestDiff = diff;
+                best = supported.get(i);
+            }
+        }
+        return best;
     }
 
     /**
