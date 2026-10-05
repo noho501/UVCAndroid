@@ -53,6 +53,7 @@ public class FileUtils {
         if (!TextUtils.isEmpty(prefix)) {
             fileName = prefix + fileName;
         }
+        
         String extension = "";
         int lastDot = fileName.lastIndexOf('.');
         if (lastDot > 0 && lastDot < fileName.length() - 1) {
