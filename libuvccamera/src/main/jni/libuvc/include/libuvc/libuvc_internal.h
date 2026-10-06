@@ -268,7 +268,7 @@ typedef struct uvc_device_info {
  Big number may cause error (libusb: error [submit_iso_transfer] submiturb failed, errno=12)
  */
 #ifndef LIBUVC_PACKETS_PER_TRANSFER_MAX
-#define LIBUVC_PACKETS_PER_TRANSFER_MAX 8
+#define LIBUVC_PACKETS_PER_TRANSFER_MAX 4
 #endif
 
 #define LIBUVC_XFER_META_BUF_SIZE ( 4 * 1024 )
