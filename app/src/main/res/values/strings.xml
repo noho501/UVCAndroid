@@ -49,4 +49,10 @@
     <string name="camera_controls_text_60hz">60Hz</string>
     <string name="camera_controls_button_close">Close</string>
     <string name="camera_controls_button_reset">Reset</string>
+
+    <string name="multi_uvc_title">HDMI Input</string>
+    <string name="multi_uvc_close_title">Turn off HDMI preview?</string>
+    <string name="multi_uvc_close_msg">Do you want to turn off the preview?\nTo turn it on again, you must reconnect HDMI.</string>
+    <string name="multi_uvc_yes">Yes</string>
+    <string name="multi_uvc_no">Cancel</string>
 </resources>
