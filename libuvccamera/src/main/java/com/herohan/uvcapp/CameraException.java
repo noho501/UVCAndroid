@@ -9,6 +9,15 @@ public class CameraException extends Exception {
      * The device is occupied when open camera.
      */
     public static int CAMERA_OPEN_ERROR_BUSY = 2;
+    /**
+     * Not enough USB bandwidth to start the video stream, e.g. another camera on the same
+     * USB bus is using it.
+     */
+    public static int CAMERA_PREVIEW_ERROR_NO_BANDWIDTH = 3;
+    /**
+     * The video stream could not be started for another reason.
+     */
+    public static int CAMERA_PREVIEW_ERROR_UNKNOWN = 4;
 
     /**
      * Error code

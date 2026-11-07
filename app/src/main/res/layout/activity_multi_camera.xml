@@ -1,0 +1,148 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/multi_background"
+    android:orientation="horizontal"
+    tools:context="com.herohan.uvcapp.activity.MultiCameraActivity">
+
+    <FrameLayout
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_margin="8dp"
+        android:layout_weight="1"
+        android:background="@drawable/bg_multi_main">
+
+        <com.serenegiant.widget.AspectRatioSurfaceView
+            android:id="@+id/viewMainPreview1"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:layout_gravity="center"
+            android:visibility="gone" />
+
+        <com.serenegiant.widget.AspectRatioSurfaceView
+            android:id="@+id/viewMainPreview2"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:layout_gravity="center"
+            android:visibility="gone" />
+
+        <!-- Opaque, so it covers the SurfaceView while there is no picture to show -->
+        <LinearLayout
+            android:id="@+id/mainPlaceholder"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="@drawable/bg_multi_main"
+            android:gravity="center"
+            android:orientation="vertical"
+            android:padding="24dp">
+
+            <ImageView
+                android:layout_width="56dp"
+                android:layout_height="56dp"
+                android:importantForAccessibility="no"
+                android:src="@drawable/ic_videocam"
+                app:tint="@color/multi_icon" />
+
+            <TextView
+                android:id="@+id/tvMainPlaceholderTitle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:gravity="center"
+                android:textColor="@color/white"
+                android:textSize="18sp"
+                android:textStyle="bold"
+                tools:text="@string/multi_camera_main_title" />
+
+            <TextView
+                android:id="@+id/tvMainPlaceholderText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:gravity="center"
+                android:textColor="@color/multi_text_secondary"
+                android:textSize="14sp"
+                tools:text="@string/main_connect_usb_tip" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/mainLabelChip"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top|start"
+            android:layout_margin="10dp"
+            android:background="@drawable/bg_multi_chip"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="8dp"
+            android:paddingTop="4dp"
+            android:paddingEnd="10dp"
+            android:paddingBottom="4dp"
+            android:visibility="gone">
+
+            <View
+                android:id="@+id/mainStatusDot"
+                android:layout_width="9dp"
+                android:layout_height="9dp"
+                android:background="@drawable/bg_multi_dot" />
+
+            <TextView
+                android:id="@+id/tvMainLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:textColor="@color/white"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                tools:text="CAM 1" />
+        </LinearLayout>
+    </FrameLayout>
+
+    <LinearLayout
+        android:id="@+id/multiUvcPanel"
+        android:layout_width="wrap_content"
+        android:layout_height="match_parent"
+        android:background="@color/multi_panel"
+        android:gravity="center_vertical"
+        android:orientation="vertical"
+        android:padding="8dp">
+
+        <RelativeLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="4dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_centerVertical="true"
+                android:layout_marginStart="6dp"
+                android:text="@string/multi_uvc_title"
+                android:textColor="@android:color/white"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <ImageView
+                android:id="@+id/btnClosePanel"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:layout_alignParentEnd="true"
+                android:layout_centerVertical="true"
+                android:layout_marginEnd="6dp"
+                android:background="?selectableItemBackgroundBorderless"
+                android:src="@android:drawable/ic_menu_close_clear_cancel"
+                app:tint="@android:color/white" />
+        </RelativeLayout>
+
+        <include
+            android:id="@+id/itemUvc1"
+            layout="@layout/item_uvc_preview" />
+
+        <include
+            android:id="@+id/itemUvc2"
+            layout="@layout/item_uvc_preview" />
+    </LinearLayout>
+</LinearLayout>

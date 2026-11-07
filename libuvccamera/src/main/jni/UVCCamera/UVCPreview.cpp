@@ -23,6 +23,7 @@
 */
 
 #include <stdlib.h>
+#include <errno.h>
 #include <linux/time.h>
 #include <unistd.h>
 
@@ -39,6 +40,8 @@
 // RGB_565:2
 #define PREVIEW_PIXEL_BYTES 4
 #define FRAME_POOL_SZ MAX_FRAME + 2
+// how long startPreview() waits for the preview thread to start the stream
+#define START_RESULT_TIMEOUT_SEC 5
 
 UVCPreview::UVCPreview(uvc_device_handle_t *devh)
         : mPreviewWindow(NULL),
@@ -66,6 +69,11 @@ UVCPreview::UVCPreview(uvc_device_handle_t *devh)
     ENTER();
     pthread_cond_init(&preview_sync, NULL);
     pthread_mutex_init(&preview_mutex, NULL);
+    pthread_cond_init(&start_sync, NULL);
+    mStartReported = false;
+    mStartResult = UVC_SUCCESS;
+    mFramesReceived = 0;
+    mFramesDecoded = 0;
 //
     pthread_cond_init(&capture_sync, NULL);
     pthread_mutex_init(&capture_mutex, NULL);
@@ -90,6 +98,7 @@ UVCPreview::~UVCPreview() {
     clear_pool();
     pthread_mutex_destroy(&preview_mutex);
     pthread_cond_destroy(&preview_sync);
+    pthread_cond_destroy(&start_sync);
     pthread_mutex_destroy(&capture_mutex);
     pthread_cond_destroy(&capture_sync);
     pthread_mutex_destroy(&pool_mutex);
@@ -369,6 +378,10 @@ int UVCPreview::startPreview() {
         pthread_mutex_lock(&preview_mutex);
         {
             if (LIKELY(mPreviewWindow)) {
+                mStartReported = false;
+                mStartResult = UVC_SUCCESS;
+                __atomic_store_n(&mFramesReceived, 0, __ATOMIC_RELAXED);
+                __atomic_store_n(&mFramesDecoded, 0, __ATOMIC_RELAXED);
                 result = pthread_create(&preview_thread, NULL, preview_thread_func, (void *) this);
                 pthread_setname_np(preview_thread, "preview_thread");
             }
@@ -382,9 +395,59 @@ int UVCPreview::startPreview() {
                 pthread_cond_signal(&preview_sync);
             }
             pthread_mutex_unlock(&preview_mutex);
+        } else {
+            result = waitStartResult();
         }
     }
     RETURN(result, int);
+}
+
+/**
+ * Called once by the preview thread after negotiating the format and starting the stream
+ * (or failing to), so startPreview() can return the result.
+ */
+void UVCPreview::reportStartResult(int result) {
+    pthread_mutex_lock(&preview_mutex);
+    {
+        mStartResult = result;
+        mStartReported = true;
+        pthread_cond_signal(&start_sync);
+    }
+    pthread_mutex_unlock(&preview_mutex);
+}
+
+/**
+ * Waits for reportStartResult() so a stream that cannot start (e.g. UVC_ERROR_NO_BANDWIDTH)
+ * reaches the caller as an error instead of leaving a preview that never gets a frame.
+ * On failure the preview thread has already finished, so it is joined here and the preview
+ * goes back to not running, which lets startPreview() be called again later.
+ */
+int UVCPreview::waitStartResult() {
+    int result = UVC_SUCCESS;
+    struct timespec deadline;
+    clock_gettime(CLOCK_REALTIME, &deadline);
+    deadline.tv_sec += START_RESULT_TIMEOUT_SEC;
+
+    pthread_mutex_lock(&preview_mutex);
+    {
+        while (!mStartReported) {
+            if (pthread_cond_timedwait(&start_sync, &preview_mutex, &deadline) == ETIMEDOUT) {
+                break;
+            }
+        }
+        // no result in time: assume the stream is still starting
+        if (mStartReported) {
+            result = mStartResult;
+        }
+    }
+    pthread_mutex_unlock(&preview_mutex);
+
+    if (UNLIKELY(result != UVC_SUCCESS)) {
+        pthread_join(preview_thread, NULL);
+        preview_thread = 0;
+        mIsRunning = false;
+    }
+    return result;
 }
 
 int UVCPreview::stopPreview() {
@@ -417,6 +480,11 @@ int UVCPreview::stopPreview() {
     }
     pthread_mutex_unlock(&capture_mutex);
     RETURN(0, int);
+}
+
+void UVCPreview::getFrameCounts(uint32_t *received, uint32_t *decoded) {
+    *received = __atomic_load_n(&mFramesReceived, __ATOMIC_RELAXED);
+    *decoded = __atomic_load_n(&mFramesDecoded, __ATOMIC_RELAXED);
 }
 
 //**********************************************************************
@@ -505,6 +573,8 @@ void *UVCPreview::preview_thread_func(void *vptr_args) {
         result = preview->prepare_preview(&ctrl);
         if (LIKELY(!result)) {
             preview->do_preview(&ctrl);
+        } else {
+            preview->reportStartResult(result);
         }
     }
     PRE_EXIT();
@@ -561,6 +631,7 @@ void UVCPreview::do_preview(uvc_stream_ctrl_t *ctrl) {
     uvc_frame_t *frame_mjpeg = NULL;
     int result = uvc_start_streaming(
             mDeviceHandle, ctrl, uvc_preview_frame_callback, (void *) this, 0);
+    reportStartResult(result);
 
     if (LIKELY(!result)) {
         clearPreviewFrame();
@@ -582,7 +653,9 @@ void UVCPreview::do_preview(uvc_stream_ctrl_t *ctrl) {
                     result = uvc_mjpeg2rgbx_tj(frame_mjpeg, frame);   // MJPEG => yuyv
 //                    c_end = clock();
 //                    LOGI("uvc_mjpeg2yuyv time: %f", (double) (c_end - c_start) / CLOCKS_PER_SEC);
+                    __atomic_add_fetch(&mFramesReceived, 1, __ATOMIC_RELAXED);
                     if (LIKELY(!result)) {
+                        __atomic_add_fetch(&mFramesDecoded, 1, __ATOMIC_RELAXED);
                         draw_preview_one(frame, &mPreviewWindow);
                         if (!addCaptureFrame(frame)) {
                             recycle_frame(frame);
@@ -604,7 +677,9 @@ void UVCPreview::do_preview(uvc_stream_ctrl_t *ctrl) {
 //                    c_end = clock();
 //                    LOGI("uvc_yuyv2rgbx time: %f", (double) (c_end - c_start) / CLOCKS_PER_SEC);
 
+                    __atomic_add_fetch(&mFramesReceived, 1, __ATOMIC_RELAXED);
                     if (LIKELY(!result)) {
+                        __atomic_add_fetch(&mFramesDecoded, 1, __ATOMIC_RELAXED);
                         draw_preview_one(frame, &mPreviewWindow);
                         if (!addCaptureFrame(frame)) {
                             recycle_frame(frame);

@@ -69,7 +69,8 @@ static const _uvc_error_msg_t uvc_error_msgs[] = {
         {UVC_ERROR_NOT_SUPPORTED,   "Not supported"},
         {UVC_ERROR_INVALID_DEVICE,  "Invalid device"},
         {UVC_ERROR_INVALID_MODE,    "Invalid mode"},
-        {UVC_ERROR_CALLBACK_EXISTS, "Callback exists"}
+        {UVC_ERROR_CALLBACK_EXISTS, "Callback exists"},
+        {UVC_ERROR_NO_BANDWIDTH,    "Not enough USB bandwidth"}
 };
 
 /** @brief Print a message explaining an error in the UVC driver

@@ -1,4 +1,5 @@
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:ignore="MissingTranslation">
     <string name="app_name">USB Camera</string>
     <string name="action_control">Controls</string>
     <string name="action_usb">USB</string>
@@ -49,4 +50,19 @@
     <string name="camera_controls_text_60hz">60Hz</string>
     <string name="camera_controls_button_close">Close</string>
     <string name="camera_controls_button_reset">Reset</string>
+
+    <string name="action_multi_camera">Multi Camera</string>
+    <string name="multi_uvc_title">HDMI Input</string>
+    <string name="multi_camera_no_bandwidth">Not enough USB bandwidth</string>
+    <string name="multi_camera_no_bandwidth_hint">Unplug the other camera to show this one</string>
+    <string name="multi_camera_main_title">Main preview</string>
+    <string name="multi_camera_slot_label">CAM %1$d</string>
+    <string name="multi_camera_slot_empty">Plug in a camera</string>
+    <string name="multi_camera_slot_connecting">Connecting…</string>
+    <string name="multi_camera_no_picture">No picture from camera</string>
+    <string name="multi_camera_no_picture_no_frames">The camera sends no video</string>
+    <string name="multi_camera_no_picture_undecodable">Video from the camera cannot be decoded</string>
+    <!-- status title, then the detail on the next line -->
+    <string name="multi_camera_status_detail">%1$s\n%2$s</string>
+    <string name="multi_camera_trying_size">Trying %1$d×%2$d…</string>
 </resources>

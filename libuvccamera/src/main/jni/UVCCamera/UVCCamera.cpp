@@ -219,6 +219,14 @@ int UVCCamera::stopPreview() {
     RETURN(0, int);
 }
 
+int UVCCamera::getPreviewFrameCounts(uint32_t *received, uint32_t *decoded) {
+    if (LIKELY(mPreview)) {
+        mPreview->getFrameCounts(received, decoded);
+        return 0;
+    }
+    return -1;
+}
+
 int UVCCamera::setCaptureDisplay(ANativeWindow *capture_window) {
     ENTER();
     int result = EXIT_FAILURE;

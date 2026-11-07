@@ -126,6 +126,10 @@ public class MainActivity extends AppCompatActivity {
     protected void onStart() {
         super.onStart();
 
+        // Released when the multi camera screen was opened
+        if (mCameraHelper == null) {
+            initCameraHelper();
+        }
         initPreviewView();
     }
 
@@ -219,6 +223,21 @@ public class MainActivity extends AppCompatActivity {
                         toggleVideoRecord(!mIsRecording);
                     });
         });
+
+        mBinding.btnMultiCamera.setOnClickListener(v -> openMultiCamera());
+    }
+
+    private void openMultiCamera() {
+        if (mIsRecording) {
+            toggleVideoRecord(false);
+        }
+        // Release the camera first, otherwise the multi camera screen cannot open it (device busy)
+        clearCameraHelper();
+        mUsbDevice = null;
+        mIsCameraConnected = false;
+        updateUIControls();
+
+        startActivity(new Intent(this, MultiCameraActivity.class));
     }
 
     private void showCameraControlsDialog() {

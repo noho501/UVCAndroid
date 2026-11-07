@@ -145,6 +145,20 @@ public class CameraHelper implements ICameraHelper {
     }
 
     @Override
+    public int[] getPreviewFrameCounts() {
+        final ICameraConnection service = mService;
+        final UsbDevice device = mUsbDevice;
+        if (service != null && device != null) {
+            try {
+                return service.getPreviewFrameCounts(device);
+            } catch (final Exception e) {
+                // the camera went away meanwhile, there are no counters
+            }
+        }
+        return null;
+    }
+
+    @Override
     public void setPreviewSize(final Size size) {
         if (DEBUG) Log.d(TAG, "setPreviewSize:" + size);
         mAsyncHandler.post(() -> {

@@ -52,6 +52,10 @@ public class UVCCamera {
      * Resource busy
      */
     public static final int UVC_ERROR_BUSY = -6;
+    /**
+     * No USB bandwidth left to start the video stream
+     */
+    public static final int UVC_ERROR_NO_BANDWIDTH = -53;
 
     public static final int UVC_VS_FORMAT_UNCOMPRESSED = 0x04;
     public static final int UVC_VS_FRAME_UNCOMPRESSED = 0x05;
@@ -588,11 +592,16 @@ public class UVCCamera {
 
     /**
      * start preview
+     *
+     * @return 0 when the stream started or no camera is open, a positive value when preview
+     * cannot start yet (no preview surface / already running), or a negative UVC error code
+     * when the stream failed to start, e.g. {@link #UVC_ERROR_NO_BANDWIDTH}
      */
-    public synchronized void startPreview() {
+    public synchronized int startPreview() {
         if (mCtrlBlock != null) {
-            nativeStartPreview(mNativePtr);
+            return nativeStartPreview(mNativePtr);
         }
+        return 0;
     }
 
     /**
@@ -603,6 +612,20 @@ public class UVCCamera {
         if (mCtrlBlock != null) {
             nativeStopPreview(mNativePtr);
         }
+    }
+
+    /**
+     * Frame counters of the running preview, reset by every {@link #startPreview()}.
+     * A stream whose received count grows while the decoded count stays put delivers
+     * frames that cannot be decoded, so the preview stays black.
+     *
+     * @return {frames received from the camera, frames decoded}, or null when no camera is open
+     */
+    public synchronized int[] getPreviewFrameCounts() {
+        if (mCtrlBlock != null && mNativePtr != 0) {
+            return nativeGetPreviewFrameCounts(mNativePtr);
+        }
+        return null;
     }
 
     /**
@@ -677,6 +700,8 @@ public class UVCCamera {
     private native int nativeStartPreview(final long id_camera);
 
     private native int nativeStopPreview(final long id_camera);
+
+    private native int[] nativeGetPreviewFrameCounts(final long id_camera);
 
     private native int nativeSetPreviewDisplay(final long id_camera, final Surface surface);
 

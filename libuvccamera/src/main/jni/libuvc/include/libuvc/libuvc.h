@@ -50,6 +50,8 @@ typedef enum uvc_error {
     UVC_ERROR_INVALID_MODE = -51,
     /** Resource has a callback (can't use polling and async) */
     UVC_ERROR_CALLBACK_EXISTS = -52,
+    /** No isochronous transfer could be submitted, the host refused the USB bandwidth */
+    UVC_ERROR_NO_BANDWIDTH = -53,
     /** Undefined error */
     UVC_ERROR_OTHER = -99
 } uvc_error_t;

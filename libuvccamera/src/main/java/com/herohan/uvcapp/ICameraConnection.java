@@ -34,6 +34,8 @@ interface ICameraConnection {
 
     void setPreviewSize(UsbDevice device, Size size);
 
+    int[] getPreviewFrameCounts(UsbDevice device);
+
     void addSurface(UsbDevice device, Object surface, boolean isRecordable);
 
     void removeSurface(UsbDevice device, Object surface);

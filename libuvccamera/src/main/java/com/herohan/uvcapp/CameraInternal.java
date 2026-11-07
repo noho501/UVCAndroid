@@ -121,6 +121,14 @@ final class CameraInternal implements ICameraInternal {
     }
 
     @Override
+    public int[] getPreviewFrameCounts() {
+        // Not under CameraInternal.class: that lock is held while any camera starts its preview.
+        // UVCCamera synchronizes this call with its own destroy().
+        final UVCCamera camera = mUVCCamera;
+        return camera != null ? camera.getPreviewFrameCounts() : null;
+    }
+
+    @Override
     public void setPreviewSize(Size size) {
         if (DEBUG) Log.d(TAG, "setPreviewSize:" + size);
         try {
@@ -307,6 +315,7 @@ final class CameraInternal implements ICameraInternal {
     @Override
     public void startPreview() {
         if (DEBUG) Log.d(TAG, "startPreview: " + this);
+        CameraException error = null;
         synchronized (CameraInternal.class) {
             if (mUVCCamera == null) return;
 
@@ -318,10 +327,29 @@ final class CameraInternal implements ICameraInternal {
             }
 
             mUVCCamera.setPreviewDisplay(mRendererHolder.getPrimarySurface());
-            mUVCCamera.startPreview();
-
-            mIsPreviewing = true;
+            int result = mUVCCamera.startPreview();
+            if (result < 0) {
+                // The stream could not start, e.g. no USB bandwidth left for this camera.
+                // Positive results (no preview surface yet / already running) keep the old behavior.
+                mIsPreviewing = false;
+                error = createPreviewException(result);
+            } else {
+                mIsPreviewing = true;
+            }
         }
+        if (error != null) {
+            processOnError(error);
+        }
+    }
+
+    private CameraException createPreviewException(int result) {
+        Context context = UVCUtils.getApplication();
+        if (result == UVCCamera.UVC_ERROR_NO_BANDWIDTH) {
+            return new CameraException(CameraException.CAMERA_PREVIEW_ERROR_NO_BANDWIDTH,
+                    context.getString(R.string.error_messge_preview_no_bandwidth));
+        }
+        return new CameraException(CameraException.CAMERA_PREVIEW_ERROR_UNKNOWN,
+                context.getString(R.string.error_messge_preview_unknown, result));
     }
 
     @Override

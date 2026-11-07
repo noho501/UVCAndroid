@@ -295,27 +295,6 @@ static void uvc_fixup_video_ctrl(uvc_device_handle_t *devh,
         ctrl->dwMaxPayloadTransferSize = bandwidth;
     }
 
-#if defined(__ANDROID__) && !defined(LIBUVC_DISABLE_ANDROID_BULK_PAYLOAD_CLAMP)
-    /*
-     * Some kernels (often seen on MTK phones) omit or mis-report usbfs caps;
-     * libusb then splits bulk transfers into multiple 16KB URBs without
-     * USBFS_CAP_BULK_CONTINUATION handling. Completed URB short reads then
-     * abort the remainder of the frame (see libusb issues on Android bulk).
-     *
-     * UVC streaming over bulk uses ctrl->dwMaxPayloadTransferSize as the
-     * libusb_transfer length — keep each read <= linux_usbfs MAX_BULK_BUFFER_LENGTH
-     * (16384) so submit_bulk_transfer uses a single URB.
-     *
-     * Define LIBUVC_DISABLE_ANDROID_BULK_PAYLOAD_CLAMP (e.g. LOCAL_CFLAGS in
-     * libuvc/android/jni/Android.mk) on ROMs/devices where clamping breaks
-     * picky bulk UVC firmware.
-     */
-    if (!isochronous && ctrl->dwMaxPayloadTransferSize > 16384u) {
-        UVC_DEBUG("Android: clamp dwMaxPayloadTransferSize %u -> 16384 (bulk/usbfs workaround)\n",
-                  (unsigned int) ctrl->dwMaxPayloadTransferSize);
-        ctrl->dwMaxPayloadTransferSize = 16384;
-    }
-#endif
 }
 
 /** @internal
@@ -766,12 +745,22 @@ uvc_error_t uvc_get_still_ctrl_format_size(
     return uvc_probe_still_ctrl(devh, still_ctrl);
 }
 
+/*
+ * Bulk endpoints reserve no bandwidth, so a bulk device that asks for bigger payloads than
+ * proposed is accepted (HDMI capture cards send a whole frame per payload); uvc_stream_start
+ * reads such payloads in pieces when needed. Isochronous streams keep the size check because
+ * the payload size picks the altsetting, i.e. the bandwidth reserved on the bus.
+ */
 static int _uvc_stream_params_negotiated(
         uvc_stream_ctrl_t *required,
-        uvc_stream_ctrl_t *actual) {
-    return required->bFormatIndex == actual->bFormatIndex &&
-           required->bFrameIndex == actual->bFrameIndex &&
-           required->dwMaxPayloadTransferSize >= actual->dwMaxPayloadTransferSize;
+        uvc_stream_ctrl_t *actual,
+        int isochronous) {
+    if (required->bFormatIndex != actual->bFormatIndex ||
+        required->bFrameIndex != actual->bFrameIndex)
+        return 0;
+    if (!isochronous)
+        return 1;
+    return required->dwMaxPayloadTransferSize >= actual->dwMaxPayloadTransferSize;
 }
 
 /** @internal
@@ -784,11 +773,15 @@ uvc_error_t uvc_probe_stream_ctrl(
         uvc_device_handle_t *devh,
         uvc_stream_ctrl_t *ctrl) {
     uvc_stream_ctrl_t required_ctrl = *ctrl;
+    const struct libusb_interface *interface =
+            &devh->info->config->interface[ctrl->bInterfaceNumber];
+    /* A VS interface uses isochronous transfers iff it has multiple altsettings. */
+    int isochronous = interface->num_altsetting > 1;
 
     uvc_query_stream_ctrl(devh, ctrl, 1, UVC_SET_CUR);
     uvc_query_stream_ctrl(devh, ctrl, 1, UVC_GET_CUR);
 
-    if (!_uvc_stream_params_negotiated(&required_ctrl, ctrl)) {
+    if (!_uvc_stream_params_negotiated(&required_ctrl, ctrl, isochronous)) {
         UVC_DEBUG("Unable to negotiate streaming format");
         return UVC_ERROR_INVALID_MODE;
     }
@@ -870,7 +863,8 @@ void _uvc_swap_buffers(uvc_stream_handle_t *strmh) {
  * transfer (bulk mode)
  * @param payload_len Length of the payload transfer
  */
-void _uvc_process_payload(uvc_stream_handle_t *strmh, uint8_t *payload, size_t payload_len) {
+/* Returns 0 when the payload was dropped (empty, bogus header or error bit), 1 otherwise. */
+int _uvc_process_payload(uvc_stream_handle_t *strmh, uint8_t *payload, size_t payload_len) {
     size_t header_len;
     uint8_t header_info;
     size_t data_len;
@@ -883,7 +877,7 @@ void _uvc_process_payload(uvc_stream_handle_t *strmh, uint8_t *payload, size_t p
 
     /* ignore empty payload transfers */
     if (UNLIKELY(!payload || !payload_len || !strmh->outbuf))
-        return;
+        return 0;
 
     /* Certain iSight cameras have strange behavior: They send header
      * information in a packet with no image data, and then the following
@@ -904,7 +898,7 @@ void _uvc_process_payload(uvc_stream_handle_t *strmh, uint8_t *payload, size_t p
 
         if (header_len > payload_len) {
             UVC_DEBUG("bogus packet: actual_len=%zd, header_len=%zd\n", payload_len, header_len);
-            return;
+            return 0;
         }
 
         if (strmh->devh->is_isight)
@@ -923,7 +917,7 @@ void _uvc_process_payload(uvc_stream_handle_t *strmh, uint8_t *payload, size_t p
 
         if (header_info & UVC_STREAM_ERR) {
             UVC_DEBUG("bad packet: error bit set");
-            return;
+            return 0;
         }
 
         if (strmh->fid != (header_info & 1) && strmh->got_bytes != 0) {
@@ -982,9 +976,47 @@ void _uvc_process_payload(uvc_stream_handle_t *strmh, uint8_t *payload, size_t p
 
         if (header_info & UVC_STREAM_EOF ||
             strmh->got_bytes == strmh->cur_ctrl.dwMaxVideoFrameSize) {
-            /* The EOF bit is set, so publish the complete frame */
-            _uvc_swap_buffers(strmh);
+            if (strmh->bulk_defer_eof &&
+                strmh->got_bytes < strmh->cur_ctrl.dwMaxVideoFrameSize) {
+                /* The rest of this bulk payload is still to come, see _uvc_process_bulk_transfer */
+                strmh->bulk_pending_eof = 1;
+            } else {
+                /* The EOF bit is set, so publish the complete frame */
+                _uvc_swap_buffers(strmh);
+            }
         }
+    }
+    return 1;
+}
+
+/** @internal
+ * @brief Process one bulk transfer
+ *
+ * A bulk payload can be longer than one transfer when uvc_stream_start limits the transfer
+ * size (16 KB on Android). The device ends a payload with a short packet, so a transfer that
+ * comes back completely full is followed by the rest of the same payload: only the first
+ * piece starts with the payload header, the following pieces are image data.
+ */
+static void _uvc_process_bulk_transfer(uvc_stream_handle_t *strmh, uint8_t *buf,
+                                       size_t len, size_t transfer_size) {
+    int continues = strmh->bulk_split && len == transfer_size;
+
+    if (!strmh->bulk_in_payload) {
+        strmh->bulk_defer_eof = continues;
+        strmh->bulk_pending_eof = 0;
+        strmh->bulk_payload_ok = _uvc_process_payload(strmh, buf, len);
+        strmh->bulk_defer_eof = 0;
+    } else if (strmh->bulk_payload_ok && len > 0) {
+        if (strmh->got_bytes + len > strmh->cur_ctrl.dwMaxVideoFrameSize)
+            len = strmh->cur_ctrl.dwMaxVideoFrameSize - strmh->got_bytes; /* Avoid overflow. */
+        memcpy(strmh->outbuf + strmh->got_bytes, buf, len);
+        strmh->got_bytes += len;
+    }
+
+    strmh->bulk_in_payload = continues;
+    if (!continues && strmh->bulk_pending_eof) {
+        strmh->bulk_pending_eof = 0;
+        _uvc_swap_buffers(strmh);
     }
 }
 
@@ -1005,7 +1037,8 @@ void LIBUSB_CALL _uvc_stream_callback(struct libusb_transfer *transfer) {
         case LIBUSB_TRANSFER_COMPLETED:
             if (transfer->num_iso_packets == 0) {
                 /* This is a bulk mode transfer, so it just has one payload transfer */
-                _uvc_process_payload(strmh, transfer->buffer, transfer->actual_length);
+                _uvc_process_bulk_transfer(strmh, transfer->buffer, transfer->actual_length,
+                                           transfer->length);
             } else {
                 /* This is an isochronous mode transfer, so each packet has a payload transfer */
                 int packet_id;
@@ -1393,6 +1426,11 @@ uvc_error_t uvc_stream_start(
                                                altsetting->bInterfaceNumber,
                                                altsetting->bAlternateSetting);
         if (ret != UVC_SUCCESS) {
+            /* An xHCI host (e.g. Qualcomm) refuses the altsetting with ENOSPC when the bus has no
+             * periodic bandwidth left for it, and libusb reports that errno as LIBUSB_ERROR_OTHER.
+             * (MediaTek hosts accept the altsetting and refuse the transfers instead, see below.) */
+            if (ret == LIBUSB_ERROR_OTHER)
+                ret = UVC_ERROR_NO_BANDWIDTH;
             UVC_DEBUG("libusb_set_interface_alt_setting failed");
             goto fail;
         }
@@ -1412,16 +1450,38 @@ uvc_error_t uvc_stream_start(
             libusb_set_iso_packet_lengths(transfer, endpoint_bytes_per_packet);
         }
     } else {
+        /* Each bulk transfer receives one payload, or a piece of one when the payload is
+         * longer than the transfer (joined again in _uvc_process_bulk_transfer). */
+        size_t bulk_transfer_size = strmh->cur_ctrl.dwMaxPayloadTransferSize;
+#if defined(__ANDROID__) && !defined(LIBUVC_DISABLE_ANDROID_BULK_PAYLOAD_CLAMP)
+        /*
+         * Some kernels (often seen on MTK phones) omit or mis-report usbfs caps;
+         * libusb then splits bulk transfers into multiple 16KB URBs without
+         * USBFS_CAP_BULK_CONTINUATION handling. Completed URB short reads then
+         * abort the remainder of the frame (see libusb issues on Android bulk).
+         * Keep each read <= linux_usbfs MAX_BULK_BUFFER_LENGTH (16384) so
+         * submit_bulk_transfer uses a single URB. This used to clamp the negotiated
+         * dwMaxPayloadTransferSize, which cut payloads of devices that send more than
+         * 16 KB per payload (e.g. HDMI capture cards) and left their preview black.
+         */
+        if (bulk_transfer_size > 16384u)
+            bulk_transfer_size = 16384u;
+#endif
+        strmh->bulk_split = bulk_transfer_size < strmh->cur_ctrl.dwMaxPayloadTransferSize;
+        strmh->bulk_in_payload = 0;
+        strmh->bulk_payload_ok = 0;
+        strmh->bulk_defer_eof = 0;
+        strmh->bulk_pending_eof = 0;
+
         for (transfer_id = 0; transfer_id < LIBUVC_NUM_TRANSFER_BUFS;
              ++transfer_id) {
             transfer = libusb_alloc_transfer(0);
             strmh->transfers[transfer_id] = transfer;
-            strmh->transfer_bufs[transfer_id] = malloc(
-                    strmh->cur_ctrl.dwMaxPayloadTransferSize);
+            strmh->transfer_bufs[transfer_id] = malloc(bulk_transfer_size);
             libusb_fill_bulk_transfer(transfer, strmh->devh->usb_devh,
                                       format_desc->parent->bEndpointAddress,
                                       strmh->transfer_bufs[transfer_id],
-                                      strmh->cur_ctrl.dwMaxPayloadTransferSize,
+                                      bulk_transfer_size,
                                       _uvc_stream_callback,
                                       (void *) strmh, LIBUSB_FILL_TRANSFER_TIMEOUT);
         }
@@ -1447,12 +1507,23 @@ uvc_error_t uvc_stream_start(
     }
 
     if (ret != UVC_SUCCESS && transfer_id >= 0) {
+        int submitted = transfer_id;
+
         for (; transfer_id < LIBUVC_NUM_TRANSFER_BUFS; transfer_id++) {
             free(strmh->transfers[transfer_id]->buffer);
             libusb_free_transfer(strmh->transfers[transfer_id]);
             strmh->transfers[transfer_id] = 0;
         }
-        ret = UVC_SUCCESS;
+        if (submitted > 0) {
+            /* Stream with the transfers that were accepted */
+            ret = UVC_SUCCESS;
+        } else if (isochronous && ret == LIBUSB_ERROR_IO) {
+            /* Not even the first isochronous transfer was accepted: usbfs refuses it with
+             * ENOSPC when the periodic USB bandwidth is used up (e.g. by another camera).
+             * Report it instead of returning success for a stream that never gets a frame.
+             * The caller closes the stream, which also stops the callback thread. */
+            ret = UVC_ERROR_NO_BANDWIDTH;
+        }
     }
 
     UVC_EXIT(ret);

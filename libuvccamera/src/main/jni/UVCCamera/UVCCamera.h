@@ -72,6 +72,8 @@ public:
 
     int stopPreview();
 
+    int getPreviewFrameCounts(uint32_t *received, uint32_t *decoded);
+
     int setCaptureDisplay(ANativeWindow *capture_window);
 };
 

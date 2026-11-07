@@ -31,6 +31,15 @@ public interface ICameraHelper {
 
     void setPreviewSize(Size size);
 
+    /**
+     * Frame counters of the running preview, reset by every startPreview.
+     * Safe to call from any thread, but it can wait while the camera is starting its preview,
+     * so do not call it from the main thread.
+     *
+     * @return {frames received from the camera, frames decoded}, or null when no camera is open
+     */
+    int[] getPreviewFrameCounts();
+
     void addSurface(Object surface, boolean isRecordable);
 
     void removeSurface(Object surface);

@@ -30,4 +30,6 @@
     <string name="error_unknown_need_replug">不明なエラーが発生しました。 もう一度デバイスを抜き差ししてください！</string>
     <string name="error_messge_camera_open_unknown">デバイスが占有されています。 </string>
     <string name="error_messge_camera_open_busy">不明なエラーが発生しました。</string>
+    <string name="error_messge_preview_no_bandwidth">USB帯域幅が不足しているため、カメラの映像を開始できません。</string>
+    <string name="error_messge_preview_unknown">カメラの映像を開始できませんでした（エラー %1$d）。</string>
 </resources>

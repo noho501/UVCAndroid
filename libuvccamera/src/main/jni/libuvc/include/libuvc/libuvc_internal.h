@@ -329,6 +329,13 @@ struct uvc_stream_handle {
     /* raw metadata buffer if available */
     uint8_t *meta_outbuf, *meta_holdbuf;
     size_t meta_got_bytes, meta_hold_bytes;
+
+    /* A bulk payload longer than one transfer arrives in pieces, see _uvc_process_bulk_transfer */
+    uint8_t bulk_split;       // payloads can be longer than one transfer
+    uint8_t bulk_in_payload;  // the last transfer was full, the next one continues that payload
+    uint8_t bulk_payload_ok;  // the payload being continued had a usable header
+    uint8_t bulk_defer_eof;   // set while its first piece is processed: keep EOF for the last piece
+    uint8_t bulk_pending_eof; // its header had EOF, publish the frame when the payload ends
 };
 
 /** Handle on an open UVC device

@@ -30,4 +30,6 @@
     <string name="error_unknown_need_replug">Unknown error occurred. Please re-plug the device.</string>
     <string name="error_messge_camera_open_unknown">Unknown error occurred  when open camera.</string>
     <string name="error_messge_camera_open_busy">The device is occupied when open camera.</string>
+    <string name="error_messge_preview_no_bandwidth">Not enough USB bandwidth to start the camera stream.</string>
+    <string name="error_messge_preview_unknown">Failed to start the camera stream (error %1$d).</string>
 </resources>

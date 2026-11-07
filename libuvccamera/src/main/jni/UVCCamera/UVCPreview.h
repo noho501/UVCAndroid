@@ -74,6 +74,14 @@ private:
     pthread_t preview_thread;
     pthread_mutex_t preview_mutex;
     pthread_cond_t preview_sync;
+    // result of starting the stream, reported by the preview thread to startPreview()
+    pthread_cond_t start_sync;
+    bool mStartReported;
+    int mStartResult;
+    // frames taken from the stream and frames decoded since startPreview(),
+    // written by the preview thread and read from Java with __atomic builtins
+    uint32_t mFramesReceived;
+    uint32_t mFramesDecoded;
     ObjectArray<uvc_frame_t *> previewFrames;
     int previewFormat;
     size_t previewBytes;
@@ -118,6 +126,10 @@ private:
 
     void do_preview(uvc_stream_ctrl_t *ctrl);
 
+    void reportStartResult(int result);
+
+    int waitStartResult();
+
     void draw_preview_one(uvc_frame_t *frame, ANativeWindow **window);
 
 //
@@ -155,6 +167,8 @@ public:
     int startPreview();
 
     int stopPreview();
+
+    void getFrameCounts(uint32_t *received, uint32_t *decoded);
 
     inline const bool isCapturing() const;
 

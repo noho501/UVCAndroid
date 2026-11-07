@@ -1,3 +1,4 @@
+#include <string.h>
 #include "ConvertHelper.h"
 
 #define THROW(action, message) { \
@@ -25,13 +26,32 @@ const char *colorspaceName[TJ_NUMCS] = {
         "RGB", "YCbCr", "GRAY", "CMYK", "YCCK"
 };
 
+// True when the frame still ends with the JPEG end-of-image marker (ffd9), allowing some padding
+static bool jpeg_has_eoi(const unsigned char *buf, int size) {
+    int from = size > 64 ? size - 64 : 0;
+    for (int i = size - 2; i >= from; i--) {
+        if (buf[i] == 0xff && buf[i + 1] == 0xd9) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// "Corrupt JPEG data: premature end of data segment" / "Premature end of JPEG file": part of the
+// frame is missing, so it decodes to a mostly gray picture even when it still ends with ffd9
+static bool tj_warning_means_missing_data(tjhandle tjInstance) {
+    const char *message = tjGetErrorStr2(tjInstance);
+    return message && strstr(message, "remature end") != NULL;
+}
+
 int convert_mjpeg_to_rgbx_tj(void *in, int inSize, void *out, int width, int height) {
     int retval = UVC_SUCCESS;
     int flags = 0;
     int pixelFormat = TJPF_RGBX;
     tjhandle tjInstance = NULL;
-    int inSubsamp, inColorspace;
-    int _width, _height;
+    int inSubsamp = -1, inColorspace = -1;
+    int _width = 0, _height = 0;
+    bool complete = false;
     const unsigned char *jpegBuf = (const unsigned char *) (in);
     unsigned char *dstBuf = (unsigned char *) (out);
 
@@ -39,11 +59,23 @@ int convert_mjpeg_to_rgbx_tj(void *in, int inSize, void *out, int width, int hei
         THROW_TJ("initializing decompressor");
     }
 
+    /*
+     * TurboJPEG also returns -1 when libjpeg only warned, e.g. "Corrupt JPEG data: N extraneous
+     * bytes before marker 0xd9", which some cameras put in every frame. The header is read
+     * and the image fully decoded in that case, so such a frame is kept.
+     * A frame missing data after lost USB packets only warns too ("premature end of data segment")
+     * and decodes to a mostly gray picture, so a warned frame is kept only when it is complete:
+     * it ends with ffd9 and the warning is not about missing data.
+     */
+    complete = jpeg_has_eoi(jpegBuf, inSize);
     if (tjDecompressHeader3(tjInstance, jpegBuf, inSize, &_width, &_height,
                             &inSubsamp, &inColorspace) < 0) {
-        DEBUG_TJ("reading JPEG header failed");
-        retval = UVC_ERROR_INVALID_PARAM;
-        goto fail;
+        if (tjGetErrorCode(tjInstance) != TJERR_WARNING || !complete
+            || tj_warning_means_missing_data(tjInstance) || _width <= 0 || _height <= 0) {
+            DEBUG_TJ("reading JPEG header failed");
+            retval = UVC_ERROR_INVALID_PARAM;
+            goto fail;
+        }
     }
 
     if (_width != width || _height != height) {
@@ -62,9 +94,12 @@ int convert_mjpeg_to_rgbx_tj(void *in, int inSize, void *out, int width, int hei
 
     if (tjDecompress2(tjInstance, jpegBuf, inSize, dstBuf, width, 0,
                       height, pixelFormat, flags) < 0) {
-        DEBUG_TJ("decompressing JPEG image");
-        retval = UVC_ERROR_INVALID_PARAM;
-        goto fail;
+        if (tjGetErrorCode(tjInstance) != TJERR_WARNING || !complete
+            || tj_warning_means_missing_data(tjInstance)) {
+            DEBUG_TJ("decompressing JPEG image");
+            retval = UVC_ERROR_INVALID_PARAM;
+            goto fail;
+        }
     }
     tjDestroy(tjInstance);
     tjInstance = NULL;

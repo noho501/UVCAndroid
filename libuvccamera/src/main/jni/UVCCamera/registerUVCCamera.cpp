@@ -258,6 +258,22 @@ static jint nativeStopPreview(JNIEnv *env, jobject thiz,
     RETURN(result, jint);
 }
 
+// {frames received from the camera, frames decoded} since the last startPreview, or null
+static jintArray nativeGetPreviewFrameCounts(JNIEnv *env, jobject thiz,
+                                             ID_TYPE id_camera) {
+    UVCCamera *camera = reinterpret_cast<UVCCamera *>(id_camera);
+    uint32_t received = 0, decoded = 0;
+    if (UNLIKELY(!camera) || camera->getPreviewFrameCounts(&received, &decoded) != 0) {
+        return NULL;
+    }
+    jint values[2] = {(jint) received, (jint) decoded};
+    jintArray result = env->NewIntArray(2);
+    if (LIKELY(result)) {
+        env->SetIntArrayRegion(result, 0, 2, values);
+    }
+    return result;
+}
+
 static jint nativeSetPreviewDisplay(JNIEnv *env, jobject thiz,
                                     ID_TYPE id_camera, jobject jSurface) {
 
@@ -332,6 +348,7 @@ static JNINativeMethod methods[] = {
         {"nativeSetPreviewSize",      "(JIIII)I",                                  (void *) nativeSetPreviewSize},
         {"nativeStartPreview",        "(J)I",                                      (void *) nativeStartPreview},
         {"nativeStopPreview",         "(J)I",                                      (void *) nativeStopPreview},
+        {"nativeGetPreviewFrameCounts", "(J)[I",                                   (void *) nativeGetPreviewFrameCounts},
         {"nativeSetPreviewDisplay",   "(JLandroid/view/Surface;)I",                (void *) nativeSetPreviewDisplay},
         {"nativeSetFrameCallback",    "(JLcom/serenegiant/usb/IFrameCallback;I)I", (void *) nativeSetFrameCallback},
 

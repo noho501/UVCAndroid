@@ -261,6 +261,15 @@ class CameraConnectionService {
         }
 
         @Override
+        public int[] getPreviewFrameCounts(final UsbDevice device) {
+            final CameraInternal cameraInternal = getCamera(device);
+            if (cameraInternal != null) {
+                return cameraInternal.getPreviewFrameCounts();
+            }
+            return null;
+        }
+
+        @Override
         public void setPreviewSize(final UsbDevice device, final Size size) {
             if (DEBUG) Log.d(TAG, LOG_PREFIX + "setPreviewSize:");
             final CameraInternal cameraInternal = getCamera(device);

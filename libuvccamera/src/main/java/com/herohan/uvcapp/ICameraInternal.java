@@ -25,6 +25,8 @@ interface ICameraInternal {
 
     void setPreviewSize(Size size);
 
+    int[] getPreviewFrameCounts();
+
     void addSurface(final Object surface, final boolean isRecordable);
 
     void removeSurface(final Object surface);

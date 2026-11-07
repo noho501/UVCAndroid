@@ -29,4 +29,6 @@
     <string name="error_unknown_need_replug">发生未知错误。请重新插拔一下设备！</string>
     <string name="error_messge_camera_open_unknown">打开摄像头时发生未知错误。</string>
     <string name="error_messge_camera_open_busy">打开摄像头时设备被占用。</string>
+    <string name="error_messge_preview_no_bandwidth">USB带宽不足，无法启动摄像头视频流。</string>
+    <string name="error_messge_preview_unknown">无法启动摄像头视频流（错误 %1$d）。</string>
 </resources>
